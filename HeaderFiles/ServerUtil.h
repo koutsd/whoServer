@@ -32,7 +32,6 @@ private:
 public:
     workerList();
     void insert(int fd);
-    void remove(int fd);
     int length();
     strList* getData(int fd);           // get list of data of node with fd
     void addData(int fd, string data);  // insert new string data in strList of node with fd

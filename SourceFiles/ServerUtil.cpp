@@ -51,22 +51,6 @@ void workerList::insert(int fd) {
     head->next = temp;
 }
 
-void workerList::remove(int fd) {
-    if(size == 0)
-        return;
-        
-    node **curr = &head;
-    for(curr; (*curr)->next != NULL; curr = &(*curr)->next);
-        if(fd == (*curr)->fd) {
-            node **temp = curr;
-            *curr = (*curr)->next;
-            // delete (*temp)->data;
-            delete *temp;
-            size--;
-            return;
-        }
-}
-
 int workerList::length() { 
     return size;
 }

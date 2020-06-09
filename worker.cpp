@@ -211,7 +211,7 @@ int main(int argc, char* argv[]) {
         cerr << "- Error: getsockname()\n";
         return 1;
     }
-    if(listen(listenQueryFD, 10) < 0) {
+    if(listen(listenQueryFD, 0) < 0) {
         cerr <<  "- Error: listen()\n";
         return 1;
     }

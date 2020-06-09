@@ -58,6 +58,7 @@ void handleWorker(int fd) {
 
 void handleClient(int fd) {
     string query = receiveMessage(fd);  // Receive query from client
+    //if(query.at(0) != '/') query = "/" + query;
     // lock client to prevent new worker connections
     pthread_mutex_lock(&clients_mutex);
     // Send query to workers
@@ -188,7 +189,7 @@ int main(int argc, char* argv[]) {
         cerr <<  "- Error: bind()\n";
         return 1;
     }
-    if(listen(listenStatsFD, 10) < 0) {
+    if(listen(listenStatsFD, 128) < 0) {
         cerr <<  "- Error: listen()\n";
         return 1;
     }
@@ -215,7 +216,7 @@ int main(int argc, char* argv[]) {
         cerr <<  "- Error: bind()\n";
         return 1;
     }
-    if(listen(listenQueryFD, 10) < 0) {
+    if(listen(listenQueryFD, 128) < 0) {
         cerr <<  "- Error: listen()\n";
         return 1;
     }
