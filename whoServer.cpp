@@ -26,17 +26,18 @@ using namespace std;
 
 intList *workersQueryFD_list = new intList();
 
-fdList *workers = new fdList();
+workerList *workers = new workerList();
 pthread_mutex_t workers_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t workers_cond = PTHREAD_COND_INITIALIZER;
 
-fdList *clients = new fdList();
+intList *clients = new intList();
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t clients_cond = PTHREAD_COND_INITIALIZER;
 
 ringBuffer *buffer;
 pthread_mutex_t buffer_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t buffer_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t buffer_push_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t buffer_pop_cond = PTHREAD_COND_INITIALIZER;
 
 
 void handleWorker(int fd) {
@@ -53,8 +54,6 @@ void handleWorker(int fd) {
         pthread_cond_signal(&workers_cond);
         pthread_mutex_unlock(&workers_mutex);
     }
-
-    close(fd);
 }
 
 void handleClient(int fd) {
@@ -65,24 +64,30 @@ void handleClient(int fd) {
     for(int i = 0; i < workersQueryFD_list->length(); i++)
         sendMessage(workersQueryFD_list->get(i), query);
     // Add client fd to data struct with requested query
-    clients->insert(fd);
-    clients->addData(fd, query);
+    clients->add(fd);
     // Wait for client's turn receive results
-    while(!clients->isLast(fd))
-            pthread_cond_wait(&clients_cond, &clients_mutex);
+    while(fd != clients->get(clients->length() - 1))
+        pthread_cond_wait(&clients_cond, &clients_mutex);
     // Client no longer in queue
-    clients->remove(fd);
+    clients->dequeue();
     // Lock workers when stats are ready
     pthread_mutex_lock(&workers_mutex);
     while(!workers->allHaveData())
         pthread_cond_wait(&workers_cond, &workers_mutex);
     // Compose query answer
     string res = "";
-    for(int i = 0; i < workers->length(); i++) {
-        if(query.find("/diseaseFrequency") != string::npos)
-            res = to_string(stoi(res) + stoi(workers->removeDatafromIndex(i)));
-        else
+    if(query.find("/diseaseFrequency") == string::npos) {
+        for(int i = 0; i < workers->length(); i++)
             res += workers->removeDatafromIndex(i);
+        // Result not found
+        if(res == "") res = "--Not found\n";
+    }
+    else {
+        int temp = 0;
+        for(int i = 0; i < workers->length(); i++)
+            temp += stoi(workers->removeDatafromIndex(i));
+
+        res = to_string(temp) + "\n";
     }
     // Signal clients change and release mutexes
     pthread_mutex_unlock(&workers_mutex);
@@ -91,8 +96,6 @@ void handleClient(int fd) {
     // Print and send query answer
     cout << query + "\n" + res + "\n";
     sendMessage(fd, res);
-
-    close(fd);
 }
 
 
@@ -101,10 +104,10 @@ void* thread_function(void *arg) {
         // Wait until there is an fd in buffer
         pthread_mutex_lock(&buffer_mutex);
         while(buffer->isEmpty())
-            pthread_cond_wait(&buffer_cond, &buffer_mutex);
+            pthread_cond_wait(&buffer_push_cond, &buffer_mutex);
         // Get fd from buffer
         int fd = buffer->pop();
-
+        pthread_cond_signal(&buffer_pop_cond);
         pthread_mutex_unlock(&buffer_mutex);
         // Check if fd belongs to worker connection
         pthread_mutex_lock(&workers_mutex);
@@ -115,6 +118,8 @@ void* thread_function(void *arg) {
             handleWorker(fd);
         else
             handleClient(fd);
+        
+        close(fd);
     }
 }
 
@@ -231,10 +236,10 @@ int main(int argc, char* argv[]) {
         }
         // check if there is space in the buffer
         pthread_mutex_lock(&buffer_mutex);
-        bool bufferIsFull = buffer->isFull();
+        while(buffer->isFull())
+            pthread_cond_wait(&buffer_pop_cond, &buffer_mutex);
+
         pthread_mutex_unlock(&buffer_mutex);
-        // No space in buffer
-        if(bufferIsFull) continue;
 
         if(FD_ISSET(listenStatsFD, &tempSet)) {
             pthread_mutex_lock(&clients_mutex);
@@ -271,15 +276,14 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
 
-            pthread_mutex_lock(&buffer_mutex);
             pthread_mutex_lock(&workers_mutex);
-            // Add worker to data structs
-            workersQueryFD_list->add(workerFD);
             workers->insert(statsFD);
-            buffer->push(statsFD);
-            // Unlock mutexes and signal new fd in buffer
+            workersQueryFD_list->add(workerFD);
             pthread_mutex_unlock(&workers_mutex);
-            pthread_cond_signal(&buffer_cond);
+
+            pthread_mutex_lock(&buffer_mutex);
+            buffer->push(statsFD);
+            pthread_cond_signal(&buffer_push_cond);
             pthread_mutex_unlock(&buffer_mutex);
         }
         else if(FD_ISSET(listenQueryFD, &tempSet)) {
@@ -291,7 +295,7 @@ int main(int argc, char* argv[]) {
             // Add new fd in buffer
             pthread_mutex_lock(&buffer_mutex);
             buffer->push(clientFD);
-            pthread_cond_signal(&buffer_cond);
+            pthread_cond_signal(&buffer_push_cond);
             pthread_mutex_unlock(&buffer_mutex);
         }
     }

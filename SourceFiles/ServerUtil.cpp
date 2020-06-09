@@ -36,12 +36,12 @@ int ringBuffer::pop() {
 }
 
 
-fdList::fdList() {
+workerList::workerList() {
     head = NULL;
     size = 0;
 }
 
-void fdList::insert(int fd) {
+void workerList::insert(int fd) {
     size++;
 
     node* temp = head;
@@ -51,26 +51,27 @@ void fdList::insert(int fd) {
     head->next = temp;
 }
 
-void fdList::remove(int fd) {
-    if(size) {
-        node **curr = &head;
-        for(curr; (*curr)->next != NULL; curr = &(*curr)->next);
-            if(fd == (*curr)->fd) {
-                node **temp = curr;
-                *curr = (*curr)->next;
-                // delete (*temp)->data;
-                delete *temp;
-                size--;
-                return;
-            }
-    }
+void workerList::remove(int fd) {
+    if(size == 0)
+        return;
+        
+    node **curr = &head;
+    for(curr; (*curr)->next != NULL; curr = &(*curr)->next);
+        if(fd == (*curr)->fd) {
+            node **temp = curr;
+            *curr = (*curr)->next;
+            // delete (*temp)->data;
+            delete *temp;
+            size--;
+            return;
+        }
 }
 
-int fdList::length() { 
+int workerList::length() { 
     return size;
 }
 
-strList* fdList::getData(int fd) { 
+strList* workerList::getData(int fd) { 
     for(node *curr = head; curr != NULL; curr = curr->next)
         if(fd == curr->fd)
             return curr->data;
@@ -78,7 +79,7 @@ strList* fdList::getData(int fd) {
     return NULL;
 }
 
-void fdList::addData(int fd, string data) { 
+void workerList::addData(int fd, string data) { 
     for(node *curr = head; curr != NULL; curr = curr->next)
         if(fd == curr->fd) {
             curr->data->add(data);
@@ -86,7 +87,7 @@ void fdList::addData(int fd, string data) {
         }
 }
 
-bool fdList::member(int fd) {
+bool workerList::member(int fd) {
     for(node *curr = head; curr != NULL; curr = curr->next)
         if(fd == curr->fd)
             return true;
@@ -94,16 +95,16 @@ bool fdList::member(int fd) {
     return false;
 }
 
-bool fdList::allHaveData() {
+bool workerList::allHaveData() {
     int count = 0;
     for(node *curr = head; curr != NULL; curr = curr->next)
-        if(curr->data->length())
+        if(curr->data->length() > 0)
             count++;
     
     return count == size;
 }
 
-string fdList::removeDatafromIndex(int target) {
+string workerList::removeDatafromIndex(int target) {
     int index = 0;
     for(node *curr = head; curr != NULL; curr = curr->next)
         if(index++ == target)
@@ -112,7 +113,7 @@ string fdList::removeDatafromIndex(int target) {
     return "";
 }
 
-bool fdList::isLast(int fd) {
+bool workerList::isLast(int fd) {
     if(size) {
         node *curr = head;
         for(curr; curr->next != NULL; curr = curr->next);

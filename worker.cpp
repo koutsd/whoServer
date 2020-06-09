@@ -349,10 +349,6 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        // if(line == "/exit") {
-        //     kill(getppid(), SIGINT);
-        // }
-
         istringstream s(line);
         s >> query;
 

@@ -38,9 +38,7 @@ void* thread_function(void *arg) {
         }
         // Get query from list
         string query = query_list->dequeue();
-
         pthread_mutex_unlock(&queryList_mutex);
-
         // Connect to server
         int clientFD = socket(AF_INET, SOCK_STREAM, 0);
         if(clientFD < 0) {
@@ -122,6 +120,6 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < numThreads; i++)
        pthread_join(thread_pool[i], NULL);
 
-    cout.flush();
+    delete query_list;
     return 0;
 }

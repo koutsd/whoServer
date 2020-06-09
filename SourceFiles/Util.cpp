@@ -5,7 +5,7 @@
 #include <sstream>
 #include "../HeaderFiles/Util.h"
 
-#define BUFFER_SIZE 2
+#define BUFFER_SIZE 256
 
 using namespace std;
 

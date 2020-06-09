@@ -18,7 +18,7 @@ public:
 };
 
 
-class fdList {
+class workerList {
 private:
     struct node {
         int fd;
@@ -30,7 +30,7 @@ private:
     int size;
     
 public:
-    fdList();
+    workerList();
     void insert(int fd);
     void remove(int fd);
     int length();
