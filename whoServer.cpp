@@ -24,8 +24,6 @@
 using namespace std;
 
 
-intList *workersQueryFD_list = new intList();
-
 workerList *workers = new workerList();
 pthread_mutex_t workers_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t workers_cond = PTHREAD_COND_INITIALIZER;
@@ -41,73 +39,77 @@ pthread_cond_t buffer_pop_cond = PTHREAD_COND_INITIALIZER;
 
 
 void handleWorker(int fd) {
-    int error = 0;
-    socklen_t len = sizeof(error);
+    int sendFD = socket(AF_INET, SOCK_STREAM, 0);
+
+    pthread_mutex_lock(&clients_mutex);
+    // Wait until all client finished receiving data from connected workers
+    while(clients->length() != 0)
+        pthread_cond_wait(&clients_cond, &clients_mutex);
+    // Connect to worker
+    pthread_mutex_lock(&workers_mutex);
+    workers->connect(fd, sendFD);
+    pthread_mutex_unlock(&workers_mutex);
+
+    pthread_mutex_unlock(&clients_mutex);
     // while worker active keep fd in thread
-    while(getsockopt (fd, SOL_SOCKET, SO_ERROR, &error, &len) == 0) {
-        string stats = receiveMessage(fd);  // Receive query response from worker
-        // Wait till workers list is thread safe
-        pthread_mutex_lock(&workers_mutex);
+    string stats;
+    while((stats = receiveMessage(fd)) != END_READ) {    // END_READ --> indicates closed connection
         // Insert query response in data struct
+        pthread_mutex_lock(&workers_mutex);
         workers->addData(fd, stats);
-        // release mutex and signal that worker data updated
-        pthread_cond_signal(&workers_cond);
+        // Signal that worker sent new data
+        pthread_cond_signal(&workers_cond);     
         pthread_mutex_unlock(&workers_mutex);
     }
+    // Remove dead worker from list
+    pthread_mutex_lock(&workers_mutex);
+    workers->remove(fd);
+    pthread_mutex_unlock(&workers_mutex);
 }
 
+
 void handleClient(int fd) {
-    string query = receiveMessage(fd);  // Receive query from client
-    //if(query.at(0) != '/') query = "/" + query;
-    // lock client to prevent new worker connections
+    string query = receiveMessage(fd);
+    if(query == END_READ) return;    // Error reading fd
+
     pthread_mutex_lock(&clients_mutex);
     // Send query to workers
-    for(int i = 0; i < workersQueryFD_list->length(); i++)
-        sendMessage(workersQueryFD_list->get(i), query);
-    // Add client fd to data struct with requested query
+    pthread_mutex_lock(&workers_mutex);
+    workers->sendMessage(query);
+    pthread_mutex_unlock(&workers_mutex);
+    // Add client fd to queue
     clients->add(fd);
     // Wait for client's turn receive results
     while(fd != clients->get(clients->length() - 1))
         pthread_cond_wait(&clients_cond, &clients_mutex);
     // Client no longer in queue
     clients->dequeue();
-    // Lock workers when stats are ready
-    pthread_mutex_lock(&workers_mutex);
-    while(!workers->allHaveData())
-        pthread_cond_wait(&workers_cond, &workers_mutex);
-    // Compose query answer
-    string res = "";
-    if(query.find("/diseaseFrequency") == string::npos) {
-        for(int i = 0; i < workers->length(); i++)
-            res += workers->removeDatafromIndex(i);
-        // Result not found
-        if(res == "") res = "--Not found\n";
-    }
-    else {
-        int temp = 0;
-        for(int i = 0; i < workers->length(); i++)
-            temp += stoi(workers->removeDatafromIndex(i));
 
-        res = to_string(temp) + "\n";
-    }
-    // Signal clients change and release mutexes
+    pthread_mutex_lock(&workers_mutex);
+    // Compose query answer
+    string res;
+    while((res = workers->getStats(query)) == END_READ)     // Wait untill all worker have answer to query
+        pthread_cond_wait(&workers_cond, &workers_mutex);
+
     pthread_mutex_unlock(&workers_mutex);
+    // Signal clients change
     pthread_cond_signal(&clients_cond);
     pthread_mutex_unlock(&clients_mutex);
     // Print and send query answer
+    if(sendMessage(fd, res) <= 0) return;
     cout << query + "\n" + res + "\n";
-    sendMessage(fd, res);
 }
 
 
 void* thread_function(void *arg) {
     while(true) {
-        // Wait until there is an fd in buffer
         pthread_mutex_lock(&buffer_mutex);
+        // Wait until there is an fd in buffer
         while(buffer->isEmpty())
             pthread_cond_wait(&buffer_push_cond, &buffer_mutex);
         // Get fd from buffer
         int fd = buffer->pop();
+        // Signal that an element removed from buffer
         pthread_cond_signal(&buffer_pop_cond);
         pthread_mutex_unlock(&buffer_mutex);
         // Check if fd belongs to worker connection
@@ -115,10 +117,7 @@ void* thread_function(void *arg) {
         bool isWorker = workers->member(fd);
         pthread_mutex_unlock(&workers_mutex);
         // Handle fd
-        if(isWorker)
-            handleWorker(fd);
-        else
-            handleClient(fd);
+        isWorker ? handleWorker(fd) : handleClient(fd);
         
         close(fd);
     }
@@ -136,13 +135,13 @@ int main(int argc, char* argv[]) {
     for(int i = 1; i < argc; i += 2) {
         string temp = argv[i];
 
-        if(!temp.compare("-q"))
+        if(temp == "-q")
             queryPortNum = atoi(argv[i+1]);
-        else if(!temp.compare("-s"))
+        else if(temp == "-s")
             statisticsPortNum = atoi(argv[i+1]);
-        else if(!temp.compare("-w"))
+        else if(temp == "-w")
             numThreads = atoi(argv[i+1]);
-        else if(!temp.compare("-b"))
+        else if(temp == "-b")
             bufferSize = atoi(argv[i+1]);
         else {
             cerr << "- Error: Invalid Parameter: " + temp + "\n";
@@ -158,9 +157,8 @@ int main(int argc, char* argv[]) {
         cerr <<  "- Error: Buffer size too small\n";
         return 1;
     }
-    // Init ring buffer
+    // Initialize ring buffer
     buffer = new ringBuffer(bufferSize);
-
     // Create and init thread pool
     pthread_t thread_pool[numThreads];
     for(int i = 0; i < numThreads; i++)
@@ -189,7 +187,7 @@ int main(int argc, char* argv[]) {
         cerr <<  "- Error: bind()\n";
         return 1;
     }
-    if(listen(listenStatsFD, 128) < 0) {
+    if(listen(listenStatsFD, 512) < 0) {
         cerr <<  "- Error: listen()\n";
         return 1;
     }
@@ -216,7 +214,7 @@ int main(int argc, char* argv[]) {
         cerr <<  "- Error: bind()\n";
         return 1;
     }
-    if(listen(listenQueryFD, 128) < 0) {
+    if(listen(listenQueryFD, 512) < 0) {
         cerr <<  "- Error: listen()\n";
         return 1;
     }
@@ -235,56 +233,37 @@ int main(int argc, char* argv[]) {
             cerr << "- Error: Select()\n";
             return 1;
         }
-        // check if there is space in the buffer
+
         pthread_mutex_lock(&buffer_mutex);
+        // Wait until there is space in the buffer
         while(buffer->isFull())
             pthread_cond_wait(&buffer_pop_cond, &buffer_mutex);
 
         pthread_mutex_unlock(&buffer_mutex);
 
         if(FD_ISSET(listenStatsFD, &tempSet)) {
-            pthread_mutex_lock(&clients_mutex);
-            bool clientsPending = clients->length() != 0;
-            pthread_mutex_unlock(&clients_mutex);
-            // Check if clients are waiting response from already existing workers
-            if(clientsPending) continue;
-
-            sockaddr_in workerServerAddr;
-            socklen_t socketLen = sizeof(workerServerAddr);
+            sockaddr_in workerAddr;
+            socklen_t socketLen = sizeof(workerAddr);
             // Accept connection from worker
-            int statsFD = accept(listenStatsFD, (sockaddr*) &workerServerAddr, &socketLen);
+            int statsFD = accept(listenStatsFD, (sockaddr*) &workerAddr, &socketLen);
             if(statsFD < 0) {
                 cerr << "- Error: accept()\n";
                 return 1;
             }
             // receive port to send queries and sumary stats from worker
             int workerPort = stoi(receiveMessage(statsFD));
-            string summary = receiveMessage(statsFD);
+            workerAddr.sin_port = htons(workerPort);
             // Print summary stats of worker
+            string summary = receiveMessage(statsFD);
             cout << summary;
-            //  Create new socket to and connect to worker
-            int workerFD = socket(AF_INET, SOCK_STREAM, 0);
-            if(workerFD < 0) {
-                cerr <<  "- Error: socket()\n";
-                return 1;
-            }
-
-            workerServerAddr.sin_family = AF_INET;
-            workerServerAddr.sin_port = htons(workerPort);
-            // Connect to worker
-            if(connect(workerFD, (sockaddr*) &workerServerAddr, sizeof(workerServerAddr)) < 0) {
-                cerr << "- Error: connect()\n";
-                return 1;
-            }
-
+            // Add new worker
             pthread_mutex_lock(&workers_mutex);
-            workers->insert(statsFD);
-            workersQueryFD_list->add(workerFD);
+            workers->insert(statsFD, workerAddr);
             pthread_mutex_unlock(&workers_mutex);
-
+            // Push fd to buffer
             pthread_mutex_lock(&buffer_mutex);
             buffer->push(statsFD);
-            pthread_cond_signal(&buffer_push_cond);
+            pthread_cond_signal(&buffer_push_cond);     // Signal that an element was added to buffer
             pthread_mutex_unlock(&buffer_mutex);
         }
         else if(FD_ISSET(listenQueryFD, &tempSet)) {
@@ -293,11 +272,15 @@ int main(int argc, char* argv[]) {
                 cerr << "- Error: accept()\n";
                 return 1;
             }
-            // Add new fd in buffer
+            // Add new fd in buffer 
             pthread_mutex_lock(&buffer_mutex);
             buffer->push(clientFD);
-            pthread_cond_signal(&buffer_push_cond);
+            pthread_cond_signal(&buffer_push_cond);     // Signal that an element was added to buffer
             pthread_mutex_unlock(&buffer_mutex);
         }
     }
+
+    delete workers;
+    delete clients;
+    delete buffer;
 }

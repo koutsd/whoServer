@@ -14,7 +14,6 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-
 #include "HeaderFiles/Hash_Table.h"
 #include "HeaderFiles/Util.h"
 
@@ -68,27 +67,6 @@ int main(int argc, char* argv[]) {
     string serverIP = receiveMessage(readPipe, bufferSize);
     // Server Port
     int serverPort = stoi(receiveMessage(readPipe, bufferSize));
-    // Connect to server
-    int statsFD = socket(AF_INET, SOCK_STREAM, 0);
-    if(statsFD < 0) {
-        cerr << "- Error: Socket()\n";
-        return 1;
-    }
-
-    sockaddr_in serverAddr;
-    bzero(&serverAddr, sizeof(serverAddr));
-
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(serverPort);
-
-    if(inet_pton(AF_INET, serverIP.c_str(), &serverAddr.sin_addr) <= 0) {
-        cerr << "- Error: inet_pton()\n";
-        return 1;
-    }
-    if(connect(statsFD, (sockaddr*) &serverAddr, sizeof(serverAddr)) < 0) {
-        cerr << "- Error: connect()\n";
-        return 1;
-    }
     // Read num of directories for workers
     int numOfDirs = stoi(receiveMessage(readPipe, bufferSize));
     if(numOfDirs <= 0) {
@@ -187,6 +165,27 @@ int main(int argc, char* argv[]) {
 
         delete tempList;
     }
+    // Connect to server
+    int statsFD = socket(AF_INET, SOCK_STREAM, 0);
+    if(statsFD < 0) {
+        cerr << "- Error: Socket()\n";
+        return 1;
+    }
+
+    sockaddr_in serverAddr;
+    bzero(&serverAddr, sizeof(serverAddr));
+
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(serverPort);
+
+    if(inet_pton(AF_INET, serverIP.c_str(), &serverAddr.sin_addr) <= 0) {
+        cerr << "- Error: inet_pton()\n";
+        return 1;
+    }
+    if(connect(statsFD, (sockaddr*) &serverAddr, sizeof(serverAddr)) < 0) {
+        cerr << "- Error: connect()\n";
+        return 1;
+    }
     // Init new socket for server to connect and send queries
     int listenQueryFD = socket(AF_INET, SOCK_STREAM, 0);
     if(listenQueryFD < 0) {
@@ -199,8 +198,11 @@ int main(int argc, char* argv[]) {
 
     queryServerAddr.sin_family = AF_INET;
     queryServerAddr.sin_port = 0;
-    queryServerAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
+    if(inet_pton(AF_INET, serverIP.c_str(), &queryServerAddr.sin_addr) <= 0) {
+        cerr << "- Error: inet_pton()\n";
+        return 1;
+    }
     if(bind(listenQueryFD, (struct sockaddr *) &queryServerAddr, sizeof(queryServerAddr)) < 0){
         cerr << "- Error: bind()\n";
         return 1;
@@ -248,7 +250,11 @@ int main(int argc, char* argv[]) {
                 }
 
             if(FD_ISSET(queryFD, &tempSet)) {
-                line = receiveMessage(queryFD);
+                if((line = receiveMessage(queryFD)) == "^") {   // Connection closed --> seng SIGINT to master
+                    kill(getppid(), SIGINT);
+                    continue;
+                }
+                
                 cout << "- Worker " + to_string(id) + " received query: " + line + "\n";
                 break;
             }
@@ -520,7 +526,10 @@ int main(int argc, char* argv[]) {
     // Close pipes
     close(readPipe);
     close(writePipe);
+
     close(statsFD);
+    close(queryFD);
+    close(listenQueryFD);
     // Free allocated memory
     for(int i = 0; i < numOfDirs; i++) {
         entry_table[i]->deleteRecords();

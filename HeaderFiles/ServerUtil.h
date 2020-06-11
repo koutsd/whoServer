@@ -1,5 +1,9 @@
 #pragma once
 #include <string>
+#include <sys/stat.h> 
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include "../HeaderFiles/Util.h"
 
 
@@ -11,6 +15,7 @@ private:
 public:
     ringBuffer(int size);
     ~ringBuffer();
+    int length();
     bool isFull();
     bool isEmpty();
     bool push(int value);
@@ -21,7 +26,8 @@ public:
 class workerList {
 private:
     struct node {
-        int fd;
+        int statsFD, sendFD;
+        sockaddr_in addr;
         strList *data;
         node *next;
     };
@@ -29,14 +35,18 @@ private:
     node *head;
     int size;
     
+    void empty(node *n);
+    
 public:
     workerList();
-    void insert(int fd);
+    ~workerList();
+    void insert(int statsFD, sockaddr_in workerAddr);
+    void remove(int fd);
+    int connect(int fd, int sendSocket);
+    void sendMessage(string msg);
     int length();
-    strList* getData(int fd);           // get list of data of node with fd
     void addData(int fd, string data);  // insert new string data in strList of node with fd
     bool member(int fd);                // Check if node with fd exists
     bool allHaveData();                 // Check if all node have data in their data strList
-    string removeDatafromIndex(int target);     // Remove least recent data string from node at index target
-    bool isLast(int fd);                // Check if node with fd is the least recent
+    string getStats(string query);
 };

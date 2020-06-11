@@ -5,7 +5,9 @@
 using namespace std;
 
 
-void sendMessage(int pipe, string str, int bufferSize=0);
+extern const string END_READ;
+
+int sendMessage(int pipe, string str, int bufferSize=0);
 
 string receiveMessage(int pipe, int bufferSize=0);
 

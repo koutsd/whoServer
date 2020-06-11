@@ -15,7 +15,6 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <pthread.h>
-
 #include "HeaderFiles/Util.h"
 
 using namespace std;
@@ -23,29 +22,23 @@ using namespace std;
 
 string serverIP;
 int serverPort;
-strList *query_list = new strList();
 
+strList *query_list = new strList();
 pthread_mutex_t queryList_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+int threadsPreparing;
+pthread_mutex_t threadsPreparing_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t threadsPreparing_cond = PTHREAD_COND_INITIALIZER;
 
 
 void* thread_function(void *arg) {
     while(true) {
-        pthread_mutex_lock(&queryList_mutex);
-        // Check if query list is empty
-        if(query_list->length() == 0) {
-            pthread_mutex_unlock(&queryList_mutex);
-            return NULL;
-        }
-        // Get query from list
-        string query = query_list->dequeue();
-        pthread_mutex_unlock(&queryList_mutex);
-        // Connect to server
         int clientFD = socket(AF_INET, SOCK_STREAM, 0);
         if(clientFD < 0) {
             cerr << "- Error: Socket()\n";
             return NULL;
         }
-
+        // Prepare for connetion
         sockaddr_in serverAddr;
         bzero(&serverAddr, sizeof(serverAddr));
 
@@ -56,18 +49,43 @@ void* thread_function(void *arg) {
             cerr << "- Error: inet_pton()\n";
             return NULL;
         }
-        if(connect(clientFD, (sockaddr*) &serverAddr, sizeof(serverAddr)) < 0) {
-            cerr << "- Error: connect()\n";
+
+        pthread_mutex_lock(&queryList_mutex);
+        // Check if query list is empty
+        if(query_list->length() == 0) {
+            pthread_mutex_unlock(&queryList_mutex);
             return NULL;
         }
-        // Send query
-        sendMessage(clientFD, query);
-        // Receive result from server
-        string queryAnswer = receiveMessage(clientFD);
-        // Print query and result
-        cout << query + "\n" + queryAnswer + "\n";
+        // Get query from list
+        string query = query_list->dequeue();
+        
+        pthread_mutex_unlock(&queryList_mutex);
+        // Wait till all threads ready to start connections
+        pthread_mutex_lock(&threadsPreparing_mutex);
 
-        close(clientFD);
+        if(--threadsPreparing > 0)  // if Last thread not ready wait for signal
+            pthread_cond_wait(&threadsPreparing_cond, &threadsPreparing_mutex);
+        else                        // Last thread signals ready
+            pthread_cond_signal(&threadsPreparing_cond);
+ 
+        pthread_mutex_unlock(&threadsPreparing_mutex);
+        // Connect to server
+        string res;
+        do {
+            if(connect(clientFD, (sockaddr*) &serverAddr, sizeof(serverAddr)) < 0) {
+                cerr << "- Error: connect()\n";
+                return NULL;
+            }
+            // Send query
+            sendMessage(clientFD, query);
+            // Receive result from server
+            res = receiveMessage(clientFD);
+
+            close(clientFD);
+        }
+        while(res == "^");  // Error reading answer --> try again
+        
+        cout << query + "\n" + res + "\n";
     }
 }
 
@@ -84,13 +102,13 @@ int main(int argc, char* argv[]) {
     for(int i = 1; i < argc; i += 2) {
         string temp = argv[i];
 
-        if(!temp.compare("-q"))
+        if(temp == "-q")
             queryFile = argv[i+1];
-        else if(!temp.compare("-sp"))
+        else if(temp == "-sp")
             serverPort = atoi(argv[i+1]);
-        else if(!temp.compare("-w"))
+        else if(temp == "-w")
             numThreads = atoi(argv[i+1]);
-        else if(!temp.compare("-sip"))
+        else if(temp == "-sip")
             serverIP = argv[i+1];
         else {
             cerr << "- Error: Invalid Parameter: " + temp + "\n";
@@ -107,12 +125,9 @@ int main(int argc, char* argv[]) {
     ifstream ifs(queryFile);
     // Read queries from file
     while(getline(ifs, query))
-        if(query != "")
-            query_list->add(query);
-    // Create at most query length threads
-    if(numThreads > query_list->length())
-        numThreads = query_list->length();
-    // Init threads
+        query_list->add(query);
+    // Initialize threads
+    threadsPreparing = (query_list->length() < numThreads) ? query_list->length() : numThreads;
     pthread_t thread_pool[numThreads];
     for(int i = 0; i < numThreads; i++)
         pthread_create(&thread_pool[i], NULL, thread_function, NULL);

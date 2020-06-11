@@ -11,7 +11,6 @@
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
 #include "HeaderFiles/Util.h"
 
 enum {READ = 0, WRITE = 1};
@@ -58,15 +57,15 @@ int main(int argc, char* argv[]) {
     for(int i = 1; i < argc; i += 2) {
         string temp = argv[i];
 
-        if(!temp.compare("-i"))
+        if(temp == "-i")
             input_dir = argv[i+1];
-        else if(!temp.compare("-w"))
+        else if(temp == "-w")
             numWorkers = atoi(argv[i+1]);
-        else if(!temp.compare("-s"))
+        else if(temp == "-s")
             serverIP = argv[i+1];
-        else if(!temp.compare("-p"))
+        else if(temp == "-p")
             serverPort = atoi(argv[i+1]);
-        else if(!temp.compare("-b"))
+        else if(temp == "-b")
             bufferSize = atoi(argv[i+1]);
         else {
             cerr << "- Error: Invalid Parameter: " << temp << endl;

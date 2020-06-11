@@ -10,38 +10,47 @@
 using namespace std;
 
 
-void sendMessage(int pipe, string str, int buffSize) {
-    int bufferSize = buffSize ? buffSize : BUFFER_SIZE;
+const string END_READ = "^";
+
+int sendMessage(int pipe, string str, int buffSize) {
+    int ret, bufferSize = buffSize ? buffSize : BUFFER_SIZE;
 
     char msg[bufferSize] = {0};
     int splitLength = (bufferSize - 1);
     int NumSubstrings = str.length() / splitLength;
 
-    for (int i = 0; i < NumSubstrings; i++) {
+    for(int i = 0; i < NumSubstrings; i++) {
         strcpy(msg, str.substr(i * splitLength, splitLength).c_str());
-        write(pipe, msg, bufferSize);
+        if((ret = write(pipe, msg, bufferSize)) != bufferSize)
+            return ret;     // Write error
     }
 
-    if (str.length() % splitLength != 0) {
+    if(str.length() % splitLength != 0) {
         strcpy(msg, str.substr(splitLength * NumSubstrings).c_str());
-        write(pipe, msg, bufferSize);
+        if((ret = write(pipe, msg, bufferSize)) != bufferSize)
+            return ret;     // Write error
     }
 
-    strcpy(msg, "^");
-    write(pipe, msg, bufferSize);
+    strcpy(msg, END_READ.c_str());
+    if((ret = write(pipe, msg, bufferSize)) != bufferSize)
+        return ret;         // Write error
+
+    return bufferSize;
 }
 
 
 string receiveMessage(int pipe, int buffSize) {
     int bufferSize = buffSize ? buffSize : BUFFER_SIZE;
-
     char msg[bufferSize] = {0};
-    read(pipe, msg, bufferSize);
+
+    if(read(pipe, msg, bufferSize) != bufferSize)
+        return END_READ;        // Read error
 
     string data = "";
-    while(strcmp(msg, "^")) {
+    while(strcmp(msg, END_READ.c_str())) {
         data += msg;
-        read(pipe, msg, bufferSize);
+        if(read(pipe, msg, bufferSize) != bufferSize)
+            return END_READ;    // Read error
     }
 
     return data;
