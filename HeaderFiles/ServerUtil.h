@@ -9,8 +9,10 @@
 
 class ringBuffer {
 private:
-    intList *buffer;
-    int capacity;
+    bool *isCLient;
+    int *buffer;
+    int first, last;
+    int capacity, size;
 
 public:
     ringBuffer(int size);
@@ -18,7 +20,8 @@ public:
     int length();
     bool isFull();
     bool isEmpty();
-    bool push(int value);
+    bool push(int fd, bool isCLi);
+    bool firstIsClient();
     int pop();
 };
 
@@ -26,9 +29,8 @@ public:
 class workerList {
 private:
     struct node {
-        int statsFD, sendFD;
+        int fd;    // StatsFD is used as a unique identifier of node
         sockaddr_in addr;
-        strList *data;
         node *next;
     };
 
@@ -40,13 +42,8 @@ private:
 public:
     workerList();
     ~workerList();
-    void insert(int statsFD, sockaddr_in workerAddr);
-    void remove(int fd);
-    int connect(int fd, int sendSocket);
-    void sendMessage(string msg);
+    void insert(int fd, sockaddr_in workerAddr);
+    void check();
+    int* connect();
     int length();
-    void addData(int fd, string data);  // insert new string data in strList of node with fd
-    bool member(int fd);                // Check if node with fd exists
-    bool allHaveData();                 // Check if all node have data in their data strList
-    string getStats(string query);
 };

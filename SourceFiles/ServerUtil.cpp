@@ -3,40 +3,64 @@
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <fcntl.h>
 #include "../HeaderFiles/ServerUtil.h"
 
 
-ringBuffer::ringBuffer(int size) {
-    buffer = new intList();
-    capacity = size;
+ringBuffer::ringBuffer(int maxSize) {
+    capacity = maxSize;
+    buffer = new int[capacity];
+    isCLient = new bool[capacity];
+    first = 0;
+    last = -1;
+    size = 0;
 }
 
 ringBuffer::~ringBuffer() {
-    delete buffer;
+    delete[] buffer;
+    delete[] isCLient;
 }
 
 int ringBuffer::length() {
-    return buffer->length();
+    return size;
 }
 
 bool ringBuffer::isFull() {
-    return buffer->length() == capacity;
+    return size == capacity;
 }
 
 bool ringBuffer::isEmpty() {
-    return buffer->length() == 0;
+    return size == 0;
 }
 
-bool ringBuffer::push(int value) {
-    if(isFull())
-        return false;
+bool ringBuffer::push(int fd, bool isCli) {
+    if(isFull()) return false;
+    
+    size++;
+    last = (last + 1) % capacity;
+    buffer[last] = fd;
+    isCLient[last] = isCli;
 
-    buffer->add(value);
     return true;
 }
 
+bool ringBuffer::firstIsClient() {
+    return size > 0 && isCLient[first];
+}
+
 int ringBuffer::pop() {
-    return buffer->dequeue();
+    if(isEmpty()) return -1;
+
+    size--;
+    int fd = buffer[first];
+    first = (first + 1) % capacity;
+
+    if(size == 0) {
+        first = 0;
+        last = -1;
+    }
+    
+    return fd;
 }
 
 
@@ -54,110 +78,55 @@ void workerList::empty(node* n) {
 	    return;
 
 	empty(n->next);
-    close(n->statsFD);
-    close(n->sendFD);
-    delete n->data;
+    close(n->fd);
 	delete n;
 }
 
-void workerList::insert(int statsFD, sockaddr_in workerAddr) {
+void workerList::insert(int fd, sockaddr_in workerAddr) {
     size++;
 
     node* temp = head;
     head = new node;
-    head->statsFD = statsFD;
-    head->sendFD = -1;
-    head->data = new strList();
+    head->fd = fd;
     head->addr = workerAddr;
     head->next = temp;
 }
 
-void workerList::remove(int fd) {
-    for(node **curr = &head; (*curr) != NULL; curr = &((*curr)->next))
-        if(fd == (*curr)->statsFD) {
+void workerList::check() {
+    node **curr = &head;
+    int checked = 0;
+    int tempSize = size;
+
+    while(checked++ < tempSize) {
+        if(write((*curr)->fd, "", 1) <= 0) {
             size--;
             node* temp = (*curr)->next;
-            close((*curr)->statsFD);
-            close((*curr)->sendFD);
-            delete (*curr)->data;
+            close((*curr)->fd);
             delete *curr;
             *curr = temp;
-
-            return;
+            cout << "err\n";
         }
+        else
+            curr = &((*curr)->next);        
+    }
 }
 
 int workerList::length() { 
     return size;
 }
 
-int workerList::connect(int fd, int sendSocket) { 
-    for(node *curr = head; curr != NULL; curr = curr->next)
-        if(fd == curr->statsFD && curr->sendFD == -1) {
-            int ret = ::connect(sendSocket, (sockaddr*) &(curr->addr), sizeof(curr->addr));
-            if(ret == 0) 
-                curr->sendFD = sendSocket;
-
-            return ret;
+int* workerList::connect() {
+    int *fdArray = new int[size];
+    node *curr = head;
+    for(int i = 0; i < size; i++) {
+        if((fdArray[i] = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+            cerr <<  "- Error: socket()\n";
+            exit(EXIT_FAILURE);
         }
-    
-    return -1;
-}
 
-void workerList::addData(int fd, string data) { 
-    for(node *curr = head; curr != NULL; curr = curr->next)
-        if(fd == curr->statsFD) {
-            curr->data->add(data);
-            return;
-        }
-}
-
-bool workerList::member(int fd) {
-    for(node *curr = head; curr != NULL; curr = curr->next)
-        if(fd == curr->statsFD)
-            return true;
-
-    return false;
-}
-
-bool workerList::allHaveData() {
-    int count = 0;
-    int tempSize = size;
-    for(node *curr = head; curr != NULL; curr = curr->next)
-        if(curr->sendFD == -1)
-            tempSize--;
-        else if(curr->data->length() > 0)
-            count++;
-    
-    return count == tempSize;
-}
-
-string workerList::getStats(string query) {
-    if(allHaveData() == false)
-        return END_READ;    // Query answer not ready yet
-
-    string res = "";
-    if(query.find("/diseaseFrequency") == string::npos) {
-        for(node *curr = head; curr != NULL; curr = curr->next)
-            if(curr->sendFD != -1)
-                res += curr->data->dequeue();
-        // Result not found
-        if(res == "") res = "--Not found\n";
-    }
-    else {
-        int freq = 0;
-        for(node *curr = head; curr != NULL; curr = curr->next)
-            if(curr->sendFD != -1)
-                freq += stoi(curr->data->dequeue());
-
-        res = to_string(freq) + "\n";
+        ::connect(fdArray[i], (sockaddr*) &(curr->addr), sizeof(curr->addr));
+        curr = curr->next;
     }
 
-    return res;
-}
-
-void workerList::sendMessage(string msg) {
-    for(node *curr = head; curr != NULL; curr = curr->next)
-        if(curr->sendFD != -1)
-            ::sendMessage(curr->sendFD, msg) <= 0;
+    return fdArray;
 }

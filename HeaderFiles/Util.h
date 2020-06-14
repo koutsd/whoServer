@@ -61,4 +61,5 @@ public:
     bool member(int v);
     int get(int index);
     int dequeue();
+    void remove(int v);
 };

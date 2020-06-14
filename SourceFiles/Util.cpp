@@ -215,6 +215,18 @@ void intList::add(int v) {
     head->next = temp;
 }
 
+void intList::remove(int v) {
+    for(node **curr = &head; (*curr) != NULL; curr = &((*curr)->next))
+        if(v == (*curr)->value) {
+            size--;
+            node* temp = (*curr)->next;
+            delete *curr;
+            *curr = temp;
+
+            return;
+        }
+}
+
 int intList::get(int index) {
     if(index >= size || size == 0)
         return -1;
