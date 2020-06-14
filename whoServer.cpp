@@ -148,10 +148,10 @@ void* thread_function(void *arg) {
 
 
 int main(int argc, char* argv[]) {
-    int bufferSize, queryPortNum, statisticsPortNum, numThreads;
-
     signal(SIGINT, handle_sigint);
     signal(SIGPIPE, SIG_IGN);       // Ignore signal from failing to write in socket
+
+    int bufferSize, queryPortNum, statisticsPortNum, numThreads;
 
     if(argc < 9) {
         cerr << "- Error: Not Enough Parameters\n";
