@@ -61,7 +61,7 @@ void* thread_function(void *arg) {
     // Begin processing queries
     for(int i = 0; i < queriesForThread; i++) {
         if(sendMessage(clientFD, queries[i]) <= 0) {
-            cout << "- Error--: Server disconnected\n\n";
+            cout << "- Error: Server disconnected\n\n";
             break;
         }
         // Receive result from server
