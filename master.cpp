@@ -1,13 +1,10 @@
 #include <iostream>
-#include <fstream>
 #include <sstream>
 #include <string>
-#include <cstdlib>
 #include <dirent.h>
 #include <cstring>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <unistd.h>
