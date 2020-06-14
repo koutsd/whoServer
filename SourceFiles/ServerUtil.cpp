@@ -41,7 +41,7 @@ bool ringBuffer::push(int fd, bool isCli) {
 }
 
 bool ringBuffer::firstIsClient() {
-    return size > 0 && isCLient[first];
+    return !isEmpty() && isCLient[first];
 }
 
 int ringBuffer::pop() {
@@ -50,8 +50,8 @@ int ringBuffer::pop() {
     size--;
     int fd = buffer[first];
     first = (first + 1) % capacity;
-
-    if(size == 0) {
+    // Reset position
+    if(isEmpty()) { 
         first = 0;
         last = -1;
     }
@@ -70,8 +70,7 @@ workerList::~workerList() {
 }
 
 void workerList::empty(node* n) {
-	if (n == NULL)
-	    return;
+	if(n == NULL) return;
 
 	empty(n->next);
     close(n->fd);
@@ -88,19 +87,17 @@ void workerList::insert(int fd, sockaddr_in workerAddr) {
     head->next = temp;
 }
 
-void workerList::check() {
+void workerList::check_connection() {
     node **curr = &head;
-    int checked = 0;
-    int tempSize = size;
-
-    while(checked++ < tempSize) {
-        if(write((*curr)->fd, "", 1) <= 0) {
+    int len = size;
+    
+    for(int checked = 0; checked < len; checked++) {
+        if(write((*curr)->fd, "", 1) <= 0) {    // Try to send empty msg to worker
             size--;
-            node* temp = (*curr)->next;
+            node* next = (*curr)->next;
             close((*curr)->fd);
             delete *curr;
-            *curr = temp;
-            cout << "err\n";
+            *curr = next;
         }
         else
             curr = &((*curr)->next);        
@@ -113,15 +110,28 @@ int workerList::length() {
 
 int* workerList::connect() {
     int *fdArray = new int[size];
-    node *curr = head;
-    for(int i = 0; i < size; i++) {
+    int len = size;
+    node **curr = &head;
+
+    for(int i = 0; i < len; i++) {
         if((fdArray[i] = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
             cerr <<  "- Error: socket()\n";
             exit(EXIT_FAILURE);
         }
+        // Try to connect
+        int ret = ::connect(fdArray[i], (sockaddr*) &((*curr)->addr), sizeof((*curr)->addr));
+        // If connection failed remove worker from list else go to next
+        if(ret < 0) {
+            size--;
+            node* next = (*curr)->next;
+            close((*curr)->fd);
+            delete *curr;
 
-        ::connect(fdArray[i], (sockaddr*) &(curr->addr), sizeof(curr->addr));
-        curr = curr->next;
+            *curr = next;
+            fdArray[i] = -1;
+        }
+        else
+            curr = &((*curr)->next);
     }
 
     return fdArray;

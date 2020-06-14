@@ -51,14 +51,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    string readFIFO = fifo_file + to_string(2*id + 1);
-    string writeFIFO = fifo_file + to_string(2*id);
+    string readFIFO = fifo_file + to_string(id);
     // Init FIFOs
     mkfifo(readFIFO.c_str(), 0666);
-    mkfifo(writeFIFO.c_str(), 0666);
-
     int readPipe = open(readFIFO.c_str(), O_RDONLY);
-    int writePipe = open(writeFIFO.c_str(), O_WRONLY);
     // Server IP
     string serverIP = receiveMessage(readPipe, bufferSize);
     // Server Port
@@ -73,6 +69,9 @@ int main(int argc, char* argv[]) {
     Dir directories[numOfDirs];
     for(int i = 0; i < numOfDirs; i++)
         directories[i].name = receiveMessage(readPipe, bufferSize);
+    
+    // Close pipes
+    close(readPipe);
     // Data structs to store patient Records
     Hash_Table *entry_table[numOfDirs];
     AVL_Tree *exit_tree[numOfDirs];
@@ -329,8 +328,7 @@ int main(int argc, char* argv[]) {
                 delete tempList;
             }
 
-            kill(getppid(), SIGUSR1);
-            sendMessage(statsFD, summary);
+            //sendMessage(statsFD, summary);
             continue;
         }
 
@@ -348,8 +346,9 @@ int main(int argc, char* argv[]) {
             cout << "- Worker " + to_string(id) + " received client with file descriptor: " + to_string(queryFD) + "\n";
         }
         else {      // Get new query
+            queryFD_list->resetIndex();
             for(int i = 0; i < queryFD_list->length(); i++) {
-                int queryFD = queryFD_list->get(i);
+                int queryFD = queryFD_list->getNext();
 
                 if(!FD_ISSET(queryFD, &tempSet))
                     continue;
@@ -372,29 +371,30 @@ int main(int argc, char* argv[]) {
                     if(!isDate(param1) || !isDate(param2)) {
                         fail++;
                         sendMessage(queryFD, "0");
-                        continue;
                     }
+                    else {
+                        date1 = dateToInt(param1);
+                        date2 = dateToInt(param2);
 
-                    date1 = dateToInt(param1);
-                    date2 = dateToInt(param2);
-
-                    if(date1 > date2) {
-                        int temp = date1;
-                        date1 = date2;
-                        date2 = temp;
-                    }
-
-                    int frequency = 0;
-                    for(int i = 0; i < numOfDirs; i++) {
-                        string country = directories[i].name.substr(directories[i].name.find_last_of("/") + 1);
-                        if(param3 == "" || param3 == country) {
-                            frequency += entry_table[i]->frequency(disease, date1, date2);
-                            if(param3 == country) break;
+                        if(date1 > date2) {
+                            int temp = date1;
+                            date1 = date2;
+                            date2 = temp;
                         }
+
+                        int frequency = 0;
+                        for(int i = 0; i < numOfDirs; i++) {
+                            string country = directories[i].name.substr(directories[i].name.find_last_of("/") + 1);
+                            if(param3 == "" || param3 == country) {
+                                frequency += entry_table[i]->frequency(disease, date1, date2);
+                                if(param3 == country) break;
+                            }
+                        }
+
+                        frequency == 0 ? fail++ : success++;
+                        sendMessage(queryFD, to_string(frequency));
                     }
 
-                    frequency == 0 ? fail++ : success++;
-                    sendMessage(queryFD, to_string(frequency));
                 }
                 else if(query == "/numPatientAdmissions") {
                     s >> disease >> param1 >> param2 >> param3;
@@ -402,56 +402,56 @@ int main(int argc, char* argv[]) {
                     if(!isDate(param1) || !isDate(param2)) {
                         fail++;
                         sendMessage(queryFD, "");
-                        continue;
                     }
+                    else {
+                        date1 = dateToInt(param1);
+                        date2 = dateToInt(param2);
 
-                    date1 = dateToInt(param1);
-                    date2 = dateToInt(param2);
-
-                    if(date1 > date2) {
-                        int temp = date1;
-                        date1 = date2;
-                        date2 = temp;
-                    }
-
-                    string admissions = "";
-                    for(int i = 0; i < numOfDirs; i++) {
-                        string country = directories[i].name.substr(directories[i].name.find_last_of("/") + 1);
-                        if(param3 == "" || param3 == country) {
-                            admissions += country + " " + to_string(entry_table[i]->frequency(disease, date1, date2)) + "\n";
-                            if(param3 == country) break;
+                        if(date1 > date2) {
+                            int temp = date1;
+                            date1 = date2;
+                            date2 = temp;
                         }
-                    }
 
-                    admissions == "" ? fail++ : success++;
-                    sendMessage(queryFD, admissions);
+                        string admissions = "";
+                        for(int i = 0; i < numOfDirs; i++) {
+                            string country = directories[i].name.substr(directories[i].name.find_last_of("/") + 1);
+                            if(param3 == "" || param3 == country) {
+                                admissions += country + " " + to_string(entry_table[i]->frequency(disease, date1, date2)) + "\n";
+                                if(param3 == country) break;
+                            }
+                        }
+
+                        admissions == "" ? fail++ : success++;
+                        sendMessage(queryFD, admissions);
+                    }
                 }
                 else if(query == "/searchPatientRecord") {
                     if(line == query) {
                         fail++;
                         sendMessage(queryFD, "");
-                        continue;
                     }
+                    else {
+                        s >> patientID;
 
-                    s >> patientID;
+                        string res = "";
+                        PatientRecord *p;
+                        for(int i = 0; i < numOfDirs; i++)
+                            if((p = entry_table[i]->find(patientID)) != NULL) {
+                                res = p->id() + " " 
+                                    + p->firstName() + " " 
+                                    + p->lastName() + " " 
+                                    + p->disease()+ " " 
+                                    + to_string(p->getAge()) + " " 
+                                    + intToDate(p->entry()) + " " 
+                                    + intToDate(p->exitDate) + "\n";
 
-                    string res = "";
-                    PatientRecord *p;
-                    for(int i = 0; i < numOfDirs; i++)
-                        if((p = entry_table[i]->find(patientID)) != NULL) {
-                            res = p->id() + " " 
-                                + p->firstName() + " " 
-                                + p->lastName() + " " 
-                                + p->disease()+ " " 
-                                + to_string(p->getAge()) + " " 
-                                + intToDate(p->entry()) + " " 
-                                + intToDate(p->exitDate) + "\n";
+                                break;
+                            }
 
-                            break;
-                        }
-
-                    res == "" ? fail++ : success++;
-                    sendMessage(queryFD, res);
+                        res == "" ? fail++ : success++;
+                        sendMessage(queryFD, res);
+                    }
                 }
                 else if(query == "/topk-AgeRanges") {
                     int k;
@@ -460,29 +460,29 @@ int main(int argc, char* argv[]) {
                     if(!isDate(param1) || !isDate(param2)) {
                         fail++;
                         sendMessage(queryFD, "");
-                        continue;
                     }
+                    else {
+                        date1 = dateToInt(param1);
+                        date2 = dateToInt(param2);
 
-                    date1 = dateToInt(param1);
-                    date2 = dateToInt(param2);
-
-                    if(date1 > date2) {
-                        int temp = date1;
-                        date1 = date2;
-                        date2 = temp;
-                    }
-
-                    string res = "";
-                    for(int i = 0; i < numOfDirs; i++) {
-                        string country = directories[i].name.substr(directories[i].name.find_last_of("/") + 1);
-                        if(param3 == country) {
-                            res = entry_table[i]->topK_AgeRanges(k, disease, date1, date2);
-                            break;
+                        if(date1 > date2) {
+                            int temp = date1;
+                            date1 = date2;
+                            date2 = temp;
                         }
-                    }
 
-                    res == "" ? fail++ : success++;
-                    sendMessage(queryFD, res);
+                        string res = "";
+                        for(int i = 0; i < numOfDirs; i++) {
+                            string country = directories[i].name.substr(directories[i].name.find_last_of("/") + 1);
+                            if(param3 == country) {
+                                res = entry_table[i]->topK_AgeRanges(k, disease, date1, date2);
+                                break;
+                            }
+                        }
+
+                        res == "" ? fail++ : success++;
+                        sendMessage(queryFD, res);
+                    }
                 }
                 else if(query == "/numPatientDischarges") {
                     s >> disease >> param1 >> param2 >> param3;
@@ -490,60 +490,51 @@ int main(int argc, char* argv[]) {
                     if(!isDate(param1) || !isDate(param2)) {
                         fail++;
                         sendMessage(queryFD, "");
-                        continue;
                     }
+                    else {
+                        date1 = dateToInt(param1);
+                        date2 = dateToInt(param2);
 
-                    date1 = dateToInt(param1);
-                    date2 = dateToInt(param2);
-
-                    if(date1 > date2) {
-                        int temp = date1;
-                        date1 = date2;
-                        date2 = temp;
-                    }
-
-                    PatientRecord *p = new PatientRecord("", "", "", disease, "", -1, -1, -1);
-
-                    string discharges = "";
-                    for(int i = 0; i < numOfDirs; i++) {
-                        string country = directories[i].name.substr(directories[i].name.find_last_of("/") + 1);
-                        if(param3 == "" || param3 == country) {
-                            discharges += country + " " + to_string(exit_tree[i]->count(date1, date2, p)) + "\n";
-                            if(param3 == country) break;
+                        if(date1 > date2) {
+                            int temp = date1;
+                            date1 = date2;
+                            date2 = temp;
                         }
-                    }
 
-                    delete p;
-                    discharges == "" ? fail++ : success++;
-                    sendMessage(queryFD, discharges);
+                        PatientRecord *p = new PatientRecord("", "", "", disease, "", -1, -1, -1);
+
+                        string discharges = "";
+                        for(int i = 0; i < numOfDirs; i++) {
+                            string country = directories[i].name.substr(directories[i].name.find_last_of("/") + 1);
+                            if(param3 == "" || param3 == country) {
+                                discharges += country + " " + to_string(exit_tree[i]->count(date1, date2, p)) + "\n";
+                                if(param3 == country) break;
+                            }
+                        }
+
+                        delete p;
+                        discharges == "" ? fail++ : success++;
+                        sendMessage(queryFD, discharges);
+                    }
                 }
                 else
                     sendMessage(queryFD, "");
-                
+
                 break;
             }
         }
     }
-    // Create log File
-    ofstream logfile("log/log_file." + to_string(getpid()));
-
-    for(int i = 0; i < numOfDirs; i++)
-        logfile <<  directories[i].name.substr(directories[i].name.find_last_of("/") + 1) + "\n";
-
-    logfile << "TOTAL " + to_string(success + fail) + "\n" 
-            + "SUCCESS " + to_string(success) + "\n"
-            + "FAIL " + to_string(fail) + "\n";
-
-    logfile.close();
-    // Close pipes
-    close(readPipe);
-    close(writePipe);
-
+    // Close connections
     close(statsFD);
     close(listenQueryFD);
 
-    delete queryFD_list;
+    queryFD_list->resetIndex();
+    for(int i = 0; i < queryFD_list->length(); i++)
+        close(queryFD_list->getNext());
+
     // Free allocated memory
+    delete queryFD_list;
+    
     for(int i = 0; i < numOfDirs; i++) {
         entry_table[i]->deleteRecords();
         delete entry_table[i];

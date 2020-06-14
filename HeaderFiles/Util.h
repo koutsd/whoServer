@@ -49,6 +49,7 @@ private:
     };
 
     node *head;
+    node *current;
     int size;
 
     void empty(node* n);
@@ -62,4 +63,6 @@ public:
     int get(int index);
     int dequeue();
     void remove(int v);
+    int getNext();
+    void resetIndex();
 };

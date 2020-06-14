@@ -29,16 +29,25 @@ pthread_cond_t buffer_pop_cond = PTHREAD_COND_INITIALIZER;
 
 
 void handleWorker(int fd) {
-    int port = stoi(receiveMessage(fd));
+    string port = receiveMessage(fd);
+    if(port == END_READ) {          // Error reading from worker
+        close(fd);
+        return;
+    }
+
     string summary = receiveMessage(fd);
+    if(summary == END_READ) {       // Error reading from worker
+        close(fd);
+        return; 
+    }
     // Get address of worker
     sockaddr_in workerAddr;
     socklen_t socketLen = sizeof(workerAddr);
     getpeername(fd, (sockaddr*) &workerAddr, &socketLen);
-    workerAddr.sin_port = htons(port);
+    workerAddr.sin_port = htons(stoi(port));
     // Insert worker in workers list
     pthread_mutex_lock(&worker_mutex);
-    workers->check();
+    workers->check_connection();    // Check if a worker disconnected
     workers->insert(fd, workerAddr);
     pthread_mutex_unlock(&worker_mutex);
     // Print summary
@@ -51,15 +60,16 @@ void handleClient(int fd) {
     int numOfWorker = workers->length();
     int *workersFD = workers->connect();    // Connect to workers and get an fd for each connection
     pthread_mutex_unlock(&worker_mutex);
-    // Setup select to wait for worker answer to wuery
+    // Setup select() to wait for workers' answers to query
     fd_set fdSet;
     FD_ZERO(&fdSet);
     int maxFD = -1;
-
-    for(int w = 0; w < numOfWorker; w++) {
-        FD_SET(workersFD[w], &fdSet);
-        if(workersFD[w] > maxFD) maxFD = workersFD[w];
-    }
+    // Setup fd_set
+    for(int w = 0; w < numOfWorker; w++)
+        if(workersFD[w] != -1) {
+            FD_SET(workersFD[w], &fdSet);
+            if(workersFD[w] > maxFD) maxFD = workersFD[w];
+        }
 
     string query;
     while((query = receiveMessage(fd)) != END_READ) {   // While connection is open
@@ -76,19 +86,24 @@ void handleClient(int fd) {
             queryName == "/numPatientDischarges";
         // Process Query
         if(isKnownQuery) {
-            for(int w = 0; w < numOfWorker; w++)
-                sendMessage(workersFD[w], query);
-            // Wait for all workers to send answer
             int freq = 0, workersResponded = 0;
+
+            for(int w = 0; w < numOfWorker; w++) {
+                if(workersFD[w] != -1)      // Send message to all connected workers
+                    sendMessage(workersFD[w], query);
+                else
+                    workersResponded++;     // Dont wait for response from disconnected workers
+            }
+            // Wait for all workers to send answer
             while(workersResponded < numOfWorker) {
                 fd_set tempSet = fdSet;
                 if(select(maxFD + 1, &tempSet, NULL, NULL, NULL) < 0) {
                     cerr << "- Error: Select()\n";
                     exit(EXIT_FAILURE);
                 }
-                // Check for answer in workers
+                // Check for answer from workers
                 for(int w = 0; w < numOfWorker; w++)
-                    if(FD_ISSET(workersFD[w], &tempSet)) {
+                    if(workersFD[w] != -1 && FD_ISSET(workersFD[w], &tempSet)) {
                         string answer = receiveMessage(workersFD[w]);
                         if(answer != END_READ) {
                             if(queryName == "/diseaseFrequency")
@@ -107,8 +122,9 @@ void handleClient(int fd) {
         }
         // If no answer found
         if(res == "") res = "--Not found\n\n";
-        // Print result and send to client
+        // Print result
         cout << query + "\n" + res + "\n";
+        // Try to send result to cliet. If client disconnected unexpectedly close connection
         if(sendMessage(fd, res) <= 0) break;
     }
     // Close client connection
@@ -149,6 +165,7 @@ void* thread_function(void *arg) {
 
 int main(int argc, char* argv[]) {
     signal(SIGINT, handle_sigint);
+    signal(SIGQUIT, handle_sigint);
     signal(SIGPIPE, SIG_IGN);       // Ignore signal from failing to write in socket
 
     int bufferSize, queryPortNum, statisticsPortNum, numThreads;
@@ -244,7 +261,7 @@ int main(int argc, char* argv[]) {
         cerr <<  "- Error: listen()\n";
         return 1;
     }
-    // Monitor listenStatsFD and listenQueryFD with select
+    // Monitor listenStatsFD and listenQueryFD with select()
     fd_set fdSet;
     FD_ZERO(&fdSet);
     FD_SET(listenStatsFD, &fdSet);

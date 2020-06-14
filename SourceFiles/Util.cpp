@@ -186,6 +186,7 @@ string strList::dequeue() {
 
 intList::intList() {
     head = NULL;
+    current = NULL;
     size = 0;
 }
 
@@ -263,4 +264,21 @@ int intList::dequeue() {
     size--;
     
     return value;
+}
+
+int intList::getNext() {
+    if(size == 0)
+        return -1;
+
+    if(current == NULL)
+        current = head;
+
+    int value = current->value;
+    current = current->next;
+
+    return value;
+}
+
+void intList::resetIndex() {
+    current = head;
 }

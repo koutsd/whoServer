@@ -40,7 +40,7 @@ public:
     workerList();
     ~workerList();
     void insert(int fd, sockaddr_in workerAddr);
-    void check();
+    void check_connection();
     int* connect();
     int length();
 };
