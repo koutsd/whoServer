@@ -2,18 +2,11 @@
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <cstdlib>
-#include <dirent.h>
 #include <cstring>
-#include <fcntl.h>
 #include <signal.h>
-#include <sys/stat.h> 
-#include <sys/types.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-#include <netdb.h>
 #include <pthread.h>
 #include "HeaderFiles/Util.h"
 
