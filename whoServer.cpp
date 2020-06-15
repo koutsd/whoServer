@@ -18,6 +18,8 @@ void handle_sigint(int sig) {
     received_sigint = 1;
 }
 
+int query_count = 0;
+pthread_mutex_t count_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 workerList* workers = new workerList();
 pthread_mutex_t worker_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -31,13 +33,13 @@ pthread_cond_t buffer_pop_cond = PTHREAD_COND_INITIALIZER;
 void handleWorker(int fd) {
     string port = receiveMessage(fd);
     if(port == END_READ) {          // Error reading from worker
-        close(fd);
+        cerr << "- Error: Worker disconnected\n\n";
         return;
     }
 
     string summary = receiveMessage(fd);
     if(summary == END_READ) {       // Error reading from worker
-        close(fd);
+        cerr << "- Error: Worker disconnected\n\n";
         return; 
     }
     // Get address of worker
@@ -50,7 +52,7 @@ void handleWorker(int fd) {
     workers->insert(workerAddr);
     pthread_mutex_unlock(&worker_mutex);
     // Print summary
-    cout << summary;
+    //cout << summary;
 }
 
 
@@ -88,8 +90,13 @@ void handleClient(int fd) {
             int freq = 0, workersResponded = 0;
 
             for(int w = 0; w < numOfWorker; w++) {
-                if(workersFD[w] != -1)      // Send message to all connected workers
-                    sendMessage(workersFD[w], query);
+                if(workersFD[w] != -1) {      // Send message to all connected workers
+                    if(sendMessage(workersFD[w], query) <= 0) {
+                        FD_CLR(workersFD[w], &fdSet);
+                        workersResponded++;
+                        cerr << "- Error: Worker disconnected\n\n";
+                    }
+                }
                 else
                     workersResponded++;     // Dont wait for response from disconnected workers
             }
@@ -104,7 +111,9 @@ void handleClient(int fd) {
                 for(int w = 0; w < numOfWorker; w++)
                     if(workersFD[w] != -1 && FD_ISSET(workersFD[w], &tempSet)) {
                         string answer = receiveMessage(workersFD[w]);
-                        if(answer != END_READ) {
+                        if(answer == END_READ)
+                            cerr << "- Error: Worker disconnected\n\n";
+                        else {
                             if(queryName == "/diseaseFrequency")
                                 freq += stoi(answer);
                             else
@@ -115,7 +124,7 @@ void handleClient(int fd) {
                         break;
                     }
             }
-            
+
             if(queryName == "/diseaseFrequency") 
                 res = to_string(freq) + "\n";
         }
@@ -124,12 +133,21 @@ void handleClient(int fd) {
         // Print result
         cout << query + "\n" + res + "\n";
         // Try to send result to cliet. If client disconnected unexpectedly close connection
-        if(sendMessage(fd, res) <= 0) break;
+        if(sendMessage(fd, res) <= 0) {
+            cerr << "- Error: Client disconnected\n\n";
+            break;
+        }
+        // Count queries
+        pthread_mutex_lock(&count_mutex);
+        query_count++;
+        pthread_mutex_unlock(&count_mutex);
     }
     // Close connection with workers
     for(int w = 0; w < numOfWorker; w++)
-        if(workersFD[w] != -1)
+        if(workersFD[w] != -1) {
+            shutdown(workersFD[w], SHUT_RDWR);
             close(workersFD[w]);
+        }
     // Release allocated memory
     delete workersFD;
 }
@@ -156,6 +174,7 @@ void* thread_function(void *arg) {
         // Handle fd
         isClient ? handleClient(fd) : handleWorker(fd);
 
+        shutdown(fd, SHUT_RDWR);
         close(fd);
     }
 
@@ -270,6 +289,7 @@ int main(int argc, char* argv[]) {
 
     cout << "-- SERVER STARTED --\n";
     // Start accepting connections
+    int client_count = 0;
     while(!received_sigint) {
         fd_set tempSet = fdSet;
         if(select(maxFD + 1, &tempSet, NULL, NULL, NULL) < 0) {
@@ -306,13 +326,13 @@ int main(int argc, char* argv[]) {
                 cerr << "- Error: accept()\n";
                 return 1;
             }
+            // Count clients connected
+            client_count++;
             // Add new fd in buffer
             pthread_mutex_lock(&buffer_mutex);
             buffer->push(clientFD, true);
             pthread_cond_signal(&buffer_push_cond);     // Signal that an element was added to buffer
             pthread_mutex_unlock(&buffer_mutex);
-
-            // cout << "- Client with file descriptor " + to_string(clientFD) + " connected\n\n";
         }
     }
     // Signal threads to stop waiting for new fd in buffer
@@ -320,9 +340,12 @@ int main(int argc, char* argv[]) {
     // Wait for all threads to complete
     for(int i = 0; i < numThreads; i++)
         pthread_join(thread_pool[i], NULL);
+
+    cout << endl << "Received " << query_count << " queries from " << client_count << " clients" << endl;
     // Clear allocated memory
     delete workers;
     delete buffer;
 
+    cout << endl;
     return 0;
 }

@@ -208,9 +208,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     // Send port number and summary stats to server
-    sendMessage(statsFD, to_string(ntohs(queryServerAddr.sin_port)));
-    sendMessage(statsFD, summary);
+    if(sendMessage(statsFD, to_string(ntohs(queryServerAddr.sin_port))) <= 0) {
+        cerr << "- Error: Server connection\n";
+        return 1;
+    }
 
+    if(sendMessage(statsFD, summary) <= 0) {
+        cerr << "- Error: Server connection\n";
+        return 1;
+    }
+
+    shutdown(statsFD, SHUT_RDWR);
     close(statsFD);
     // Init statistics for log_file
     int success = 0;
@@ -353,6 +361,7 @@ int main(int argc, char* argv[]) {
                 if((line = receiveMessage(queryFD)) == END_READ) {
                     queryFD_list->remove(queryFD);
                     FD_CLR(queryFD, &fdSet);
+                    shutdown(queryFD, SHUT_RDWR);
                     close(queryFD);
                     break;
                 }
@@ -526,8 +535,11 @@ int main(int argc, char* argv[]) {
     close(listenQueryFD);
 
     queryFD_list->resetIndex();
-    for(int i = 0; i < queryFD_list->length(); i++)
-        close(queryFD_list->getNext());
+    for(int i = 0; i < queryFD_list->length(); i++) {
+        int fd = queryFD_list->getNext();
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+    }
 
     // Free allocated memory
     delete queryFD_list;

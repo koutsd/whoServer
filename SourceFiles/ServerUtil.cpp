@@ -77,7 +77,6 @@ void workerList::empty(node* n) {
 
 void workerList::insert(sockaddr_in workerAddr) {
     size++;
-
     node* temp = head;
     head = new node;
     head->addr = workerAddr;
@@ -100,6 +99,8 @@ int* workerList::connect() {
         }
         // If connection failed remove worker from list else go to next
         if(::connect(fdArray[i], (sockaddr*) &((*curr)->addr), sizeof((*curr)->addr)) < 0) {
+            cerr << "- Error: Worker disconnected\n\n";
+
             size--;
             node* next = (*curr)->next;
             delete *curr;
