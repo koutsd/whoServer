@@ -46,7 +46,7 @@ string receiveMessage(int pipe, int buffSize) {
         return END_READ;        // Read error
 
     string data = "";
-    while(strcmp(msg, END_READ.c_str())) {
+    while(END_READ != msg) {
         data += msg;
         if(read(pipe, msg, bufferSize) != bufferSize)
             return END_READ;    // Read error

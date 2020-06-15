@@ -99,7 +99,7 @@ int* workerList::connect() {
         }
         // If connection failed remove worker from list else go to next
         if(::connect(fdArray[i], (sockaddr*) &((*curr)->addr), sizeof((*curr)->addr)) < 0) {
-            cerr << "- Error: Worker disconnected\n\n";
+            cerr << "- Error: connect() - Worker disconnected\n\n";
 
             size--;
             node* next = (*curr)->next;

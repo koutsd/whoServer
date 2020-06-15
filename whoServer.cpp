@@ -32,16 +32,7 @@ pthread_cond_t buffer_pop_cond = PTHREAD_COND_INITIALIZER;
 
 void handleWorker(int fd) {
     string port = receiveMessage(fd);
-    if(port == END_READ) {          // Error reading from worker
-        cerr << "- Error: Worker disconnected\n\n";
-        return;
-    }
-
     string summary = receiveMessage(fd);
-    if(summary == END_READ) {       // Error reading from worker
-        cerr << "- Error: Worker disconnected\n\n";
-        return; 
-    }
     // Get address of worker
     sockaddr_in workerAddr;
     socklen_t socketLen = sizeof(workerAddr);
@@ -51,8 +42,8 @@ void handleWorker(int fd) {
     pthread_mutex_lock(&worker_mutex);
     workers->insert(workerAddr);
     pthread_mutex_unlock(&worker_mutex);
-    // Print summary
-    //cout << summary;
+    
+    cout << "- Worker connected\n\n";
 }
 
 
@@ -74,6 +65,7 @@ void handleClient(int fd) {
 
     string query;
     while((query = receiveMessage(fd)) != END_READ) {   // While connection is open
+        int freq = 0, workersResponded = 0;
         string res = "", queryName = "";
         // Get query name
         istringstream s(query);
@@ -87,14 +79,16 @@ void handleClient(int fd) {
             queryName == "/numPatientDischarges";
         // Process Query
         if(isKnownQuery) {
-            int freq = 0, workersResponded = 0;
-
             for(int w = 0; w < numOfWorker; w++) {
                 if(workersFD[w] != -1) {      // Send message to all connected workers
                     if(sendMessage(workersFD[w], query) <= 0) {
+                        cerr << "- Error: write() - Worker disconnected\n\n";
+
                         FD_CLR(workersFD[w], &fdSet);
+                        shutdown(workersFD[w], SHUT_RDWR);
+                        close(workersFD[w]);
+                        workersFD[w] = -1;
                         workersResponded++;
-                        cerr << "- Error: Worker disconnected\n\n";
                     }
                 }
                 else
@@ -112,7 +106,7 @@ void handleClient(int fd) {
                     if(workersFD[w] != -1 && FD_ISSET(workersFD[w], &tempSet)) {
                         string answer = receiveMessage(workersFD[w]);
                         if(answer == END_READ)
-                            cerr << "- Error: Worker disconnected\n\n";
+                            cerr << "- Error: read() - Worker disconnected\n\n";
                         else {
                             if(queryName == "/diseaseFrequency")
                                 freq += stoi(answer);
@@ -134,7 +128,7 @@ void handleClient(int fd) {
         cout << query + "\n" + res + "\n";
         // Try to send result to cliet. If client disconnected unexpectedly close connection
         if(sendMessage(fd, res) <= 0) {
-            cerr << "- Error: Client disconnected\n\n";
+            cerr << "- Error: write() - Client disconnected\n\n";
             break;
         }
         // Count queries
@@ -149,7 +143,7 @@ void handleClient(int fd) {
             close(workersFD[w]);
         }
     // Release allocated memory
-    delete workersFD;
+    delete[] workersFD;
 }
 
 
@@ -287,7 +281,7 @@ int main(int argc, char* argv[]) {
     FD_SET(listenQueryFD, &fdSet);
     int maxFD = (listenStatsFD > listenQueryFD) ? listenStatsFD : listenQueryFD;
 
-    cout << "-- SERVER STARTED --\n";
+    cout << "-- SERVER STARTED --\n\n";
     // Start accepting connections
     int client_count = 0;
     while(!received_sigint) {

@@ -138,6 +138,9 @@ int main(int argc, char* argv[]) {
     delete directories;
 
     while(!received_sigint) {
+        pause();        // Wait for sigchild or sigint
+
+        if(received_sigint) break;
         // Handle SIGCHLD --> init new worker
         while(received_sigchld) {
             for(int w = 0; w < numWorkers; w++) {

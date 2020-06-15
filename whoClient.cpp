@@ -60,19 +60,20 @@ void* thread_function(void *arg) {
     // Begin processing queries
     for(int i = 0; i < queriesForThread; i++) {
         if(sendMessage(clientFD, queries[i]) <= 0) {
-            cout << "- Error: Server disconnected\n\n";
+            cout << "- Error: write() - Server disconnected\n\n";
             break;
         }
         // Receive result from server
         string res = receiveMessage(clientFD);
         if(res == END_READ) {
-            cout << "- Error: Server disconnected\n\n";
+            cout << "- Error: read() - Server disconnected\n\n";
             break;
         }
 
         cout << queries[i] + "\n" + res + "\n";
     }
-
+    
+    shutdown(clientFD, SHUT_RDWR);
     close(clientFD);
 
     return NULL;
@@ -80,6 +81,8 @@ void* thread_function(void *arg) {
 
 
 int main(int argc, char* argv[]) {
+    signal(SIGPIPE, SIG_IGN);
+    
     string queryFile;
     int numThreads;
 
