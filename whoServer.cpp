@@ -47,8 +47,7 @@ void handleWorker(int fd) {
     workerAddr.sin_port = htons(stoi(port));
     // Insert worker in workers list
     pthread_mutex_lock(&worker_mutex);
-    workers->check_connection();    // Check if a worker disconnected
-    workers->insert(fd, workerAddr);
+    workers->insert(workerAddr);
     pthread_mutex_unlock(&worker_mutex);
     // Print summary
     cout << summary;
@@ -127,11 +126,10 @@ void handleClient(int fd) {
         // Try to send result to cliet. If client disconnected unexpectedly close connection
         if(sendMessage(fd, res) <= 0) break;
     }
-    // Close client connection
-    close(fd);
     // Close connection with workers
     for(int w = 0; w < numOfWorker; w++)
-        close(workersFD[w]);
+        if(workersFD[w] != -1)
+            close(workersFD[w]);
     // Release allocated memory
     delete workersFD;
 }
@@ -157,6 +155,8 @@ void* thread_function(void *arg) {
         pthread_mutex_unlock(&buffer_mutex);
         // Handle fd
         isClient ? handleClient(fd) : handleWorker(fd);
+
+        close(fd);
     }
 
     return NULL;

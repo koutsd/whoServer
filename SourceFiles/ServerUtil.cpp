@@ -71,37 +71,17 @@ workerList::~workerList() {
 
 void workerList::empty(node* n) {
 	if(n == NULL) return;
-
 	empty(n->next);
-    close(n->fd);
 	delete n;
 }
 
-void workerList::insert(int fd, sockaddr_in workerAddr) {
+void workerList::insert(sockaddr_in workerAddr) {
     size++;
 
     node* temp = head;
     head = new node;
-    head->fd = fd;
     head->addr = workerAddr;
     head->next = temp;
-}
-
-void workerList::check_connection() {
-    node **curr = &head;
-    int len = size;
-    
-    for(int checked = 0; checked < len; checked++) {
-        if(write((*curr)->fd, "", 1) <= 0) {    // Try to send empty msg to worker
-            size--;
-            node* next = (*curr)->next;
-            close((*curr)->fd);
-            delete *curr;
-            *curr = next;
-        }
-        else
-            curr = &((*curr)->next);        
-    }
 }
 
 int workerList::length() { 
@@ -118,16 +98,13 @@ int* workerList::connect() {
             cerr <<  "- Error: socket()\n";
             exit(EXIT_FAILURE);
         }
-        // Try to connect
-        int ret = ::connect(fdArray[i], (sockaddr*) &((*curr)->addr), sizeof((*curr)->addr));
         // If connection failed remove worker from list else go to next
-        if(ret < 0) {
+        if(::connect(fdArray[i], (sockaddr*) &((*curr)->addr), sizeof((*curr)->addr)) < 0) {
             size--;
             node* next = (*curr)->next;
-            close((*curr)->fd);
             delete *curr;
-
             *curr = next;
+            close(fdArray[i]);
             fdArray[i] = -1;
         }
         else

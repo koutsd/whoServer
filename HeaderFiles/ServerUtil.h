@@ -26,7 +26,6 @@ public:
 class workerList {
 private:
     struct node {
-        int fd;    // StatsFD is used as a unique identifier of node
         sockaddr_in addr;
         node *next;
     };
@@ -39,8 +38,7 @@ private:
 public:
     workerList();
     ~workerList();
-    void insert(int fd, sockaddr_in workerAddr);
-    void check_connection();
+    void insert(sockaddr_in workerAddr);
     int* connect();
     int length();
 };

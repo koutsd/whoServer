@@ -160,27 +160,6 @@ int main(int argc, char* argv[]) {
 
         delete tempList;
     }
-    // Connect to server
-    int statsFD = socket(AF_INET, SOCK_STREAM, 0);
-    if(statsFD < 0) {
-        cerr << "- Error: Socket()\n";
-        return 1;
-    }
-
-    sockaddr_in serverAddr;
-    bzero(&serverAddr, sizeof(serverAddr));
-
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(serverPort);
-
-    if(inet_pton(AF_INET, serverIP.c_str(), &serverAddr.sin_addr) <= 0) {
-        cerr << "- Error: inet_pton()\n";
-        return 1;
-    }
-    if(connect(statsFD, (sockaddr*) &serverAddr, sizeof(serverAddr)) < 0) {
-        cerr << "- Error: connect()\n";
-        return 1;
-    }
     // Init new socket for server to connect and send queries
     int listenQueryFD = socket(AF_INET, SOCK_STREAM, 0);
     if(listenQueryFD < 0) {
@@ -190,14 +169,10 @@ int main(int argc, char* argv[]) {
 
     sockaddr_in queryServerAddr;
     bzero(&queryServerAddr, sizeof(queryServerAddr));
-
     queryServerAddr.sin_family = AF_INET;
+    queryServerAddr.sin_addr.s_addr = htonl(INADDR_ANY);
     queryServerAddr.sin_port = 0;
 
-    if(inet_pton(AF_INET, serverIP.c_str(), &queryServerAddr.sin_addr) <= 0) {
-        cerr << "- Error: inet_pton()\n";
-        return 1;
-    }
     if(bind(listenQueryFD, (struct sockaddr *) &queryServerAddr, sizeof(queryServerAddr)) < 0){
         cerr << "- Error: bind()\n";
         return 1;
@@ -212,9 +187,31 @@ int main(int argc, char* argv[]) {
         cerr <<  "- Error: listen()\n";
         return 1;
     }
+    // Connect to server
+    int statsFD = socket(AF_INET, SOCK_STREAM, 0);
+    if(statsFD < 0) {
+        cerr << "- Error: Socket()\n";
+        return 1;
+    }
+
+    sockaddr_in serverAddr;
+    bzero(&serverAddr, sizeof(serverAddr));
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(serverPort);
+
+    if(inet_pton(AF_INET, serverIP.c_str(), &serverAddr.sin_addr) <= 0) {
+        cerr << "- Error: inet_pton()\n";
+        return 1;
+    }
+    if(connect(statsFD, (sockaddr*) &serverAddr, sizeof(serverAddr)) < 0) {
+        cerr << "- Error: connect()\n";
+        return 1;
+    }
     // Send port number and summary stats to server
     sendMessage(statsFD, to_string(ntohs(queryServerAddr.sin_port)));
     sendMessage(statsFD, summary);
+
+    close(statsFD);
     // Init statistics for log_file
     int success = 0;
     int fail = 0;
@@ -525,7 +522,7 @@ int main(int argc, char* argv[]) {
         }
     }
     // Close connections
-    close(statsFD);
+    // close(statsFD);
     close(listenQueryFD);
 
     queryFD_list->resetIndex();

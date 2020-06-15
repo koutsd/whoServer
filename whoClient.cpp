@@ -31,7 +31,6 @@ void* thread_function(void *arg) {
     // Prepare for connetion
     sockaddr_in serverAddr;
     bzero(&serverAddr, sizeof(serverAddr));
-
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(serverPort);
 
