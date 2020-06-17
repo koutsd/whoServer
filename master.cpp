@@ -10,8 +10,6 @@
 #include <unistd.h>
 #include "HeaderFiles/Util.h"
 
-enum {READ = 0, WRITE = 1};
-
 using namespace std;
 
 static volatile sig_atomic_t signals_received = 0;
